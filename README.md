@@ -62,7 +62,7 @@ begin
   // if ticktime = 123456789ns ...
 
   // Get string
-  s := Performance.LastTimeStr;  // '123ms''
+  s := Performance.LastTimeStr;  // '123ms'
   s := Performance.LastTimeStrF; // '123.45ms'
 
   // Get numerical value.
