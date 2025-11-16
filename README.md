@@ -62,8 +62,8 @@ begin
   // if ticktime = 123456789ns ...
 
   // Get string
-  s := Performance.LastTimeStr;  // Like 123ms
-  s := Performance.LastTimeStrF; // Like 123.45ms
+  s := Performance.LastTimeStr;  // '123ms''
+  s := Performance.LastTimeStrF; // '123.45ms'
 
   // Get numerical value.
   n := Performance.LastTime[_PTU_Microsecond];  // 123456
