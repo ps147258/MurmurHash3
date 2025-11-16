@@ -29,7 +29,7 @@
 //        轉字串為 '0807060504030201 100F0E0D0C0B0A09'
 //
 // 歷程：
-//   2025年11月16日 建立
+//   2025年11月16日 建立，與發佈後的註解修正
 //
 // 其他：<無>
 //
@@ -68,7 +68,7 @@
 //        Converts to the string: '0807060504030201 100F0E0D0C0B0A09'
 //
 // History:
-//   Nov 16, 2025 Created.
+//   Nov 16, 2025 Created and post-release annotation corrections.
 //
 // Others: <None>
 //
@@ -204,12 +204,12 @@ uses
 {$INLINE ON} // ON|OFF|AUTO
 
 //
-// 這是針對在 X86 編譯下指定使用部分組合語言，可以增加運算效率。
-// 如需停用，請在 '{' 後加上 '.'，如：'{.$DEFINE UseX86ASM}'
+// 這是針對 MurmurHash3_32bit_x86 在 X86 與 X64 編譯下指定使用部分組合語言，
+// 可以增加運算效率。如需停用，請在 '{' 後加上 '.'，如：'{.$DEFINE UseASM}'
 //
-// This is to specify the use of partial assembly language when compiling under X86,
-// which can increase computational efficiency.
-// To disable, please add a '.' after '{', such as: '{.$DEFINE UseX86ASM}'
+// This specifies the use of partial assembly language for MurmurHash3_32bit_x86
+// when compiling under X86 and X64, which can increase computational efficiency.
+// To disable, please add a '.' after '{', such as: '{.$DEFINE UseASM}'
 //
 {$DEFINE UseASM}
 
@@ -645,10 +645,10 @@ end;
 //
 //   X86 ASM    B 273t / X64 ASM    B 273t = 100.00%
 //
-// 目前看起來 TMurmurHash3_32bit_x86 在 X86 與 X64 編譯後執行速度很可能極度接近，
+// 目前看起來 MurmurHash3_32bit_x86 ASM 在 X86 與 X64 編譯後執行速度很可能極度接近，
 // 只是我沒有進行高次數的測試，所以尚未取得更短的時間，這也取決於測試環境。
 //
-// It currently appears that the execution speed of TMurmurHash3_32bit_x86,
+// It currently appears that the execution speed of MurmurHash3_32bit_x86 ASM,
 // after compilation for both X86 and X64, is likely to be extremely close;
 // just shorter times were simply not achieved during testing.
 //
