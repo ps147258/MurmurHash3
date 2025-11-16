@@ -26,22 +26,25 @@ procedure TForm1.Buttin1Click(Sender: TObject);
 const
   s: AnsiString = 'test';
 var
+  MurmurHash3_32bit: TMurmurHash3_32bit_x86;
+  MurmurHash3_128bit_x86: TMurmurHash3_128bit_x86;
+  MurmurHash3_128bit_x64: TMurmurHash3_128bit_x64;
   Hash: TBytes;
 begin
   // MurmurHash3 32bit
-  TMurmurHash3_32bit_x86.Reset;
-  TMurmurHash3_32bit_x86.Update(PAnsiChar(s)^, Length(s));
-  Hash := TMurmurHash3_32bit_x86.HashAsBytes;
+  MurmurHash3_32bit.Reset;
+  MurmurHash3_32bit.Update(PAnsiChar(s)^, Length(s));
+  Hash := MurmurHash3_32bit.HashAsBytes;
 
   // MurmurHash3 128bit x86
-  MurmurHash128x86.Reset;
-  MurmurHash128x86.Update(PAnsiChar(s)^, Length(s));
-  Hash := MurmurHash128x86.HashAsBytes;
+  MurmurHash3_128bit_x86.Reset;
+  MurmurHash3_128bit_x86.Update(PAnsiChar(s)^, Length(s));
+  Hash := MurmurHash3_128bit_x86.HashAsBytes;
 
   // MurmurHash3 128bit x64
-  TMurmurHash3_128bit_x64.Reset;
-  TMurmurHash3_128bit_x64.Update(PAnsiChar(s)^, Length(s));
-  Hash := TMurmurHash3_128bit_x64.HashAsBytes;
+  MurmurHash3_128bit_x64.Reset;
+  MurmurHash3_128bit_x64.Update(PAnsiChar(s)^, Length(s));
+  Hash := MurmurHash3_128bit_x64.HashAsBytes;
 end;
 ```
 
