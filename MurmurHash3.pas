@@ -30,10 +30,11 @@
 //
 // 歷程：
 //   2025年11月16日 建立，與發佈後的註解修正
+//   2025年11月17日 改進組合語言演算性能，與去除多餘的編譯指示設定
 //
 // 其他：<無>
 //
-// 最後變更日期：2025年11月16日
+// 最後變更日期：2025年11月17日
 //
 
 
@@ -69,10 +70,13 @@
 //
 // History:
 //   Nov 16, 2025 Created and post-release annotation corrections.
+//   Nov 17, 2025
+//     Assembly code performance improvement.
+//     Removal of superfluous compiler directive settings.
 //
 // Others: <None>
 //
-// Last modified date: Nov 16, 2025
+// Last modified date: Nov 17, 2025
 //
 
 
@@ -605,7 +609,6 @@ end;
 
 procedure Fmix32(var H: Cardinal); inline;
 begin
-  {$OVERFLOWCHECKS OFF}
   H := H xor (H shr 16);
   H := H * $85ebca6b;
   H := H xor (H shr 13);
@@ -615,7 +618,6 @@ end;
 
 procedure Fmix64(var H: UInt64); inline;
 begin
-  {$OVERFLOWCHECKS OFF}
   H := H xor (H shr 33);
   H := H * UInt64($ff51afd7ed558ccd);
   H := H xor (H shr 33);
@@ -638,12 +640,12 @@ end;
 //   A = TMurmurHash3_32bit_x86, B = 本函數
 //   A = TMurmurHash3_32bit_x86, B = This function
 //
-//   X86 Pascal A 583t / X86 Pascal B 811t =  71.88%
-//   X64 Pascal A 587t / X64 Pascal B 804t =  73.01%
-//   X86 Pascal A 583t / X86 ASM    B 273t = 213.55%
-//   X64 Pascal A 587t / X64 ASM    B 273t = 215.01%
+//   X86 Pascal A 666t / X86 Pascal B 976t =  68.23%
+//   X64 Pascal A 672t / X64 Pascal B 970t =  69.27%
+//   X86 Pascal A 666t / X86 ASM    B 255t = 261.17%
+//   X64 Pascal A 672t / X64 ASM    B 256t = 262.50%
 //
-//   X86 ASM    B 273t / X64 ASM    B 273t = 100.00%
+//   X86 ASM    B 255t / X64 ASM    B 256t =  99.60%
 //
 // 目前看起來 MurmurHash3_32bit_x86 ASM 在 X86 與 X64 編譯後執行速度很可能極度接近，
 // 只是我沒有進行高次數的測試，所以尚未取得更短的時間，這也取決於測試環境。
@@ -670,10 +672,11 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
 
   // nBlocks := Len div 4;
   mov  esi, Len            // 由 Len 複製值至 nBlocks(暫存器 esi)
-  shr  esi, $02            // nBlocks 整除 4
+
+  shr  esi, $02            // nBlocks 整除 4；SHR 會改變 CPU 旗標，運算後值為零時 ZF = 1 否則 ZF = 0
   // for I := 1 to nBlocks do
-  test esi, esi            // 測試 nBlocks 值是否為 0
-  jle  @@endloop0          // 若 nBlocks 為 0 則轉跳至 endloop0
+  jz   @@endloop0          // 若 nBlocks 為 0 則轉跳至 endloop0；當 CPU 旗標 ZF = 1 時轉跳
+
 @@loop0:
   // K := pBlock^;
   mov  eax, [ebx]          // 取得 pBlock 位址的值 至 K(暫存器 EAX)
@@ -682,25 +685,20 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // K := K * $cc9e2d51;
   imul eax, eax, $cc9e2d51 // 將 K 值乘上 $cc9e2d51
   // K := ROTL32(K, 15);
-  mov  edi, eax            // 將 K 值 複製至 暫存器 EDI
-  shr  eax, $11            // 將 K 位元右移 17 次
-  shl  edi, $0f            // 將 暫存器 EDI 位元左移 15 次
-  or   eax, edi            // 將 暫存器 EDI 值 合併到 K(暫存器 EAX)
+  rol  eax, $0f            // K 的位元向左循環位移 15 次
   // K := K * $1b873593;
   imul eax, eax, $1b873593 // 將 K 值乘 $1b873593
   // H := H xor K;
   xor  ecx, eax            // H(暫存器 ECX) 與 K XOR 後放入 H(暫存器 ECX)
   // H := ROTL32(H, 13);
-  mov  eax, ecx            // 將H 值 複製至 暫存器 EAX
-  shr  ecx, $13            // 將 暫存器 ECX 位元左移 19 次
-  shl  eax, $0d            // 將 暫存器 EAX 位元左移 13 次
-  or   ecx, eax            // 將 暫存器 EAX 值 合併到 H(暫存器 ECX)
+  rol  ecx, $0d            // H 的位元向左循環位移 13 次
   // H := H * 5 + $e6546b64;
-  lea  ecx, [ecx+ecx*4]    // 將 H 的值乘 5
-  add  ecx, $e6546b64      // 將 H 的值加 $e6546b64
+  lea  ecx, [ecx+ecx*4]    // 將 H 值乘上 5
+  add  ecx, $e6546b64      // 將 H 值加上 $e6546b64
+
   // for I := 1 to nBlocks do
-  dec  esi                 // 將 nBlocks - 1
-  jnz  @@loop0             // 若 nBlocks 大於 0 則跳回到 loop0
+  dec  esi                 // 將 nBlocks - 1；DEC 值若為零 ZF = 1，不是零 ZF = 0
+  jnz  @@loop0             // 若 nBlocks 不是 0 則跳回到 loop0；ZF = 0 則轉跳
 @@endloop0:
 
   // 為了讓 SHL 使用 CL(ECX) 以做動態遮罩，先將 pBlock(暫存器 EBX) 位址的值先取出，
@@ -714,24 +712,23 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   //
 
   // nLastBytes := Len and 3; // 取得 Len 除 4 的餘數存入至 nLastBytes
-  mov  ecx, $00000003      // 設定二進位 00...0011 至 nLastBytes(暫存器 ECX) 做為遮罩
-  and  ecx, Len            // 將 nLastBytes(暫存器 ECX) AND Len
-  // if nLastBytes <> 0 then
-  test ecx, ecx            // 測試 nLastBytes
-  jz   @@if0               // 如果 nLastBytes 為 0 則轉跳至 @@if0
+  mov  ecx, $03            // 設定二進位 00...0011 至 nLastBytes(暫存器 ECX) 做為遮罩
+  and  ecx, Len            // 將 nLastBytes(暫存器 ECX) AND Len；and 後值若為 0 則 ZF = 1，反之 ZF = 0
+
+  // if nLastBytes = 0 then goto @@if0
+  jz   @@if0               // 如果 nLastBytes 為 0 則轉跳至 @@if0；ZF = 1 則轉跳
+
   // K := (PCardinal(pLeftover)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
-  mov  esi, -$01           // 設定 暫存器 SEI 為 -$01($FFFFFFFF) 做為遮罩，利用補 0 機制，稍後還要翻轉位元
+  or   esi, -$01           // 設定 暫存器 SEI 為 -$01($FFFFFFFF) 做為遮罩，利用補 0 機制，稍後還要翻轉位元
   shl  ecx, $03            // 將 nLastBytes 乘 8
   shl  esi, cl             // 將 暫存器 SEI 向左移動數次(由上面 nLastBytes * 8 次)
-  xor  esi, -$01           // 翻轉 暫存器 SEI 位元，這裡使遮罩變為有效
+  not  esi                 // 翻轉 暫存器 SEI 位元，這裡使遮罩變為有效
   and  eax, esi            // 將 暫存器 EAX 以 暫存器 ESI 做遮蔽，只留下有效位元組的數值
+
   // K := K * $cc9e2d51;
   imul eax, eax, $cc9e2d51 // 將 K 值乘 $cc9e2d51
   // K := ROTL32(K, 15);
-  mov  esi, eax            // 複製 K(暫存器 EAX) 到 暫存器 ESI
-  shr  eax, $11            // 將 暫存器 EAX 位元左移 17 次
-  shl  esi, $0f            // 將 暫存器 ESI 位元左移 15 次
-  or   eax, esi            // 將 暫存器 ESI 值 合併到 K(暫存器 EAX)
+  rol  eax, $0f            // K 的位元向左循環位移 15 次
   // K := K * $1b873593;
   imul eax, eax, $1b873593 // 將 K 值乘 $1b873593
   // H := H xor K;
@@ -774,56 +771,42 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
 end;
 {$ELSE CPUX86 AND UseASM}
 {$IF Defined(CPUX64) AND Defined(UseASM)}
-// X64 與 X86 步驟上差不多，只是使用的暫存器略有不同而已，因此就不附上註解了。
+// X64 與 X86 步驟上差不多，只是使用的暫存器略有不同而已，因此改用其他方式表示。
 asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
   // 除了 EAX、EDX 和 ECX 暫存器，其他暫存器在函數結束時都必須還原
-  // begin      // 保留暫存器值
+  // begin                 // 保留暫存器值
   push rbp
   sub  rsp, $10
   mov  rbp, rsp
 
-  // pBlock := PCardinal(@Data);
-  mov   r9, rcx
+  mov   r9, rcx            // pBlock := PCardinal(@Data);
 
   //
   // 處理完整區塊區段
   //
 
-  // nBlocks := Len div 4;
-  mov  r10d, edx
-  shr  r10, $02
+  // nBlocks := Len div 4; // 由於後面不需要保持 nBlocks 因此 nBlocks 也是做為 I
+  mov  r10, rdx            // I := Len
+  shr  r10, $02            // I := I div 4
   // for I := 1 to nBlocks do
-  test r10, r10
-  jle  @@endloop0
+  jz  @@endloop0           // if I = 0 then goto @@endloop0
 
 @@loop0:
-  // K := pBlock^;
-  mov  eax, [r9]
-  // Inc(pBlock);
-  add   r9, $04
-  // K := K * $cc9e2d51;
-  imul eax, eax, $cc9e2d51
-  // K := ROTL32(K, 15);
-  mov  ecx, eax
-  shr  eax, $11
-  shl  ecx, $0f
-  or   eax, ecx
-  // K := K * $1b873593;
-  imul eax, eax, $1b873593
-  // H := H xor K;
-  xor  r8d, eax
-  // H := ROTL32(H, 13);
-  mov  eax, r8d
-  shr  r8d, $13
-  shl  eax, $0d
-  or   r8d, eax
+  mov  eax, [r9]           // K := pBlock^;
+  add   r9, $04            // Inc(pBlock);
+  imul eax, eax, $cc9e2d51 // K := K * $cc9e2d51;
+  rol  eax, $0f            // K := ROTL32(K, 15);
+  imul eax, eax, $1b873593 // K := K * $1b873593;
+  xor   r8, rax            // H := H xor K;
+  rol  r8d, $0d            // H := ROTL32(H, 13);
+
   // H := H * 5 + $e6546b64;
-  lea  r8d, [r8d+r8d*4]
-  add  r8d, $e6546b64
+  lea   r8, [r8+r8*4]      // H := H * 5
+  add   r8, $e6546b64      // H := H + $e6546b64
+
   // for I := 1 to nBlocks do
-  dec  r10
-  test r10, r10
-  jnz  @@loop0
+  dec  r10                 // Dec(I)
+  jnz  @@loop0             // if I <> 0 then goto @@endloop0
 //  nop
 @@endloop0:
 
@@ -831,53 +814,45 @@ asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
   // 處理尾端非完整區塊
   //
 
-  // nLastBytes := Len and 3;
-  mov  ecx, edx
-  and  ecx, $03
-  // if nLastBytes <> 0 then
-  test ecx, ecx
-  jz   @@if0
-  // K := (PCardinal(pBlock)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
-  shl  ecx, $03
-  or   eax, -$01
-  shl  eax, cl
-  xor  eax, -$01
-  and  eax, [r9]
-  // K := K * $cc9e2d51;
-  imul eax, eax, $cc9e2d51
-  // K := ROTL32(K, 15);
-  mov  ecx, eax
-  shr  eax, $11
-  shl  ecx, $0f
-  or   eax, ecx
-  // K := K * $1b873593;
-  imul eax, eax, $1b873593
-  // H := H xor K;
-  xor  r8d, eax
-@@if0:
+  mov  rcx, $03            // nLastBytes := Len
+  and  rcx, rdx            // nLastBytes := Len and 3
+  jz   @@if0               // if nLastBytes = 0 then goto @@if0
 
+  // K := (PCardinal(pBlock)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
+  or   rax, -$01           // {M} := Cardinal(-1)
+  shl  rcx, $03            // nLastBytes := nLastBytes * 8
+  shl  rax, cl             // {M} := {M} shl nLastBytes
+  not  rax                 // {M} := not {M};
+  and  eax, [r9]           // K   := {M} and pBlock^
+
+  imul eax, eax, $cc9e2d51 // K := K * $cc9e2d51;
+  rol  eax, $0f            // K := ROTL32(K, 15);
+  imul eax, eax, $1b873593 // K := K * $1b873593;
+  xor   r8, rax            // H := H xor K;
+
+@@if0:
   //
   // 終結計算
   //
 
-  // H := H xor Len;
-  xor  r8d, edx
-  // Fmix32(H);
-  mov  eax, r8d
-  shr  eax, $10
-  xor  r8d, eax
-  imul r8d, r8d,$85ebca6b
-  mov  eax, r8d
-  shr  eax, $0d
-  xor  r8d, eax
-  imul r8d, r8d, $c2b2ae35
-  mov  eax, r8d
-  shr  eax, $10
-  xor  r8d, eax
-  // Result := H;
-  mov  eax, r8d
+  xor  r8, rdx             // H := H xor Len;
 
-  // end;              // 還原 暫存器 值
+  // Fmix32(H);
+  mov  rax, r8             // {H} :=  H
+  shr  r8d, $10            //  H  :=  H  shr 16;
+  xor  rax, r8             // {H} := {H} xor H;
+  imul eax, eax, $85ebca6b // {H} := {H}  *  $85ebca6b;
+  mov   r8, rax            //  H  := {H}
+  shr  eax, $0d            // {H} := {H} shr 13;
+  xor   r8, rax            //  H  :=  H  xor {H};
+  imul r8d, r8d, $c2b2ae35 //  H  :=  H   *  $c2b2ae35;
+  mov  rax, r8             // {H} :=  H
+  shr   r8, $10            //  H  :=  H  shr 16;
+  xor  rax, r8             // {H} := {H} xor H;
+
+//  mov  Result, rax         // Result := H; // 回傳就是 rax 所以這行不需要
+
+  // end;                  // 還原 暫存器 值
   lea  rsp, [rbp+$10]
   pop  rbp
 end;
@@ -888,7 +863,6 @@ var
   pBlock: PCardinal;
   pLeftover: PByte;
 begin
-  {$OVERFLOWCHECKS OFF}
   H := Seed;
 
   //
@@ -900,7 +874,7 @@ begin
   begin
     K := pBlock^;
     Inc(pBlock);
-//    {$OVERFLOWCHECKS OFF}
+
     K := K * $cc9e2d51;
     K := ROTL32(K, 15);
     K := K * $1b873593;
@@ -908,7 +882,6 @@ begin
     H := H xor K;
     H := ROTL32(H, 13);
     H := H * 5 + $e6546b64;
-//    {$OVERFLOWCHECKS ON}
   end;
 
   //
@@ -927,12 +900,11 @@ begin
       1: K1 := Cardinal(pLeftover[2]);
     end;
     {$IFEND}
-//    {$OVERFLOWCHECKS OFF}
+
     K := K * $cc9e2d51;
     K := ROTL32(K, 15);
     K := K * $1b873593;
     H := H xor K;
-//    {$OVERFLOWCHECKS ON}
   end;
 
   //
@@ -969,7 +941,6 @@ begin
   //
   pBlock := PUInt128(@Data);
   nBlocks := Len div 16;
-  {$OVERFLOWCHECKS OFF}
   for I := 0 to nBlocks - 1 do
   begin
     K := pBlock^;
@@ -1072,7 +1043,6 @@ begin
   Inc(H.u32[1], H.u32[0]);
   Inc(H.u32[2], H.u32[0]);
   Inc(H.u32[3], H.u32[0]);
-  {$OVERFLOWCHECKS ON}
 
   Result.u32[0] := H.u32[0];
   Result.u32[1] := H.u32[1];
@@ -1098,7 +1068,6 @@ begin
   //
   pBlock := PUInt128(@Data);
   nBlocks := Len div 16;
-  {$OVERFLOWCHECKS OFF}
   for I := 0 to nBlocks - 1 do
   begin
     K.u64[0] := pBlock.u64[0];
@@ -1160,7 +1129,6 @@ begin
 
   Inc(H.u64[0], H.u64[1]);
   Inc(H.u64[1], H.u64[0]);
-  {$OVERFLOWCHECKS ON}
 
   Result.u64[0] := H.u64[0];
   Result.u64[1] := H.u64[1];
@@ -1264,7 +1232,6 @@ end;
 
 procedure TMurmurHash3_32bit_x86.Scramble(var K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C1;
   K := ROTL32(K, R1);
   K := K * C2;
@@ -1272,7 +1239,6 @@ end;
 
 procedure TMurmurHash3_32bit_x86.Compress(var H: Cardinal; K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble(K);
   H := H xor K;
   H := ROTL32(H, R2);
@@ -1578,7 +1544,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Scramble1(var K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C1;
   K := ROTL32(K, R1A);
   K := K * C2;
@@ -1586,7 +1551,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Scramble2(var K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C2;
   K := ROTL32(K, R2A);
   K := K * C3;
@@ -1594,7 +1558,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Scramble3(var K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C3;
   K := ROTL32(K, R3A);
   K := K * C4;
@@ -1602,7 +1565,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Scramble4(var K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C4;
   K := ROTL32(K, R4A);
   K := K * C1;
@@ -1618,7 +1580,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Compress1(var HA: Cardinal; HB, K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble1(K);
   HA := HA xor K;
   HA := ROTL32(HA, R1B);
@@ -1628,7 +1589,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Compress2(var HA: Cardinal; HB, K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble2(K);
   HA := HA xor K;
   HA := ROTL32(HA, R2B);
@@ -1638,7 +1598,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Compress3(var HA: Cardinal; HB, K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble3(K);
   HA := HA xor K;
   HA := ROTL32(HA, R3B);
@@ -1648,7 +1607,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Compress4(var HA: Cardinal; HB, K: Cardinal);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble4(K);
   HA := HA xor K;
   HA := ROTL32(HA, R4B);
@@ -1726,28 +1684,24 @@ begin
   FHashContext.u32[1] := FHashContext.u32[1] xor FLength;
   FHashContext.u32[0] := FHashContext.u32[0] xor FLength;
 
-  {$OVERFLOWCHECKS OFF}
   Inc(FHashContext.u32[0], FHashContext.u32[1]);
   Inc(FHashContext.u32[0], FHashContext.u32[2]);
   Inc(FHashContext.u32[0], FHashContext.u32[3]);
   Inc(FHashContext.u32[1], FHashContext.u32[0]);
   Inc(FHashContext.u32[2], FHashContext.u32[0]);
   Inc(FHashContext.u32[3], FHashContext.u32[0]);
-  {$OVERFLOWCHECKS ON}
 
   Fmix32(FHashContext.u32[0]);
   Fmix32(FHashContext.u32[1]);
   Fmix32(FHashContext.u32[2]);
   Fmix32(FHashContext.u32[3]);
 
-  {$OVERFLOWCHECKS OFF}
   Inc(FHashContext.u32[0], FHashContext.u32[1]);
   Inc(FHashContext.u32[0], FHashContext.u32[2]);
   Inc(FHashContext.u32[0], FHashContext.u32[3]);
   Inc(FHashContext.u32[1], FHashContext.u32[0]);
   Inc(FHashContext.u32[2], FHashContext.u32[0]);
   Inc(FHashContext.u32[3], FHashContext.u32[0]);
-  {$OVERFLOWCHECKS ON}
 
   FFinalized := True;
 end;
@@ -1994,7 +1948,6 @@ end;
 
 procedure TMurmurHash3_128bit_x64.Scramble1(var K: UInt64);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C1;
   K := ROTL64(K, R1A);
   K := K * C2;
@@ -2002,7 +1955,6 @@ end;
 
 procedure TMurmurHash3_128bit_x64.Scramble2(var K: UInt64);
 begin
-  {$OVERFLOWCHECKS OFF}
   K := K * C2;
   K := ROTL64(K, R2A);
   K := K * C1;
@@ -2016,7 +1968,6 @@ end;
 
 procedure TMurmurHash3_128bit_x64.Compress1(var HA: UInt64; HB, K: UInt64);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble1(K);
   HA := HA xor K;
   HA := ROTL64(HA, R1B);
@@ -2026,7 +1977,6 @@ end;
 
 procedure TMurmurHash3_128bit_x64.Compress2(var HA: UInt64; HB, K: UInt64);
 begin
-  {$OVERFLOWCHECKS OFF}
   Scramble2(K);
   HA := HA xor K;
   HA := ROTL64(HA, R2B);
@@ -2093,18 +2043,14 @@ begin
   FHashContext.u64[0] := FHashContext.u64[0] xor FLength;
   FHashContext.u64[1] := FHashContext.u64[1] xor FLength;
 
-  {$OVERFLOWCHECKS OFF}
   Inc(FHashContext.u64[0], FHashContext.u64[1]);
   Inc(FHashContext.u64[1], FHashContext.u64[0]);
-  {$OVERFLOWCHECKS ON}
 
   Fmix64(FHashContext.u64[0]);
   Fmix64(FHashContext.u64[1]);
 
-  {$OVERFLOWCHECKS OFF}
   Inc(FHashContext.u64[0], FHashContext.u64[1]);
   Inc(FHashContext.u64[1], FHashContext.u64[0]);
-  {$OVERFLOWCHECKS ON}
 
   FFinalized := True;
 end;
