@@ -34,7 +34,7 @@
 //
 // 其他：<無>
 //
-// 最後變更日期：2025年11月17日
+// 最後變更日期：2025年11月18日
 //
 
 
@@ -76,7 +76,7 @@
 //
 // Others: <None>
 //
-// Last modified date: Nov 17, 2025
+// Last modified date: Nov 18, 2025
 //
 
 
@@ -658,11 +658,11 @@ function MurmurHash3_32bit_x86(const Data; Len: Cardinal; Seed: Cardinal): Cardi
 {$IF Defined(CPUX86) AND Defined(UseASM)}
 asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // begin                 // 進入函數
-  // 除了 EAX、EDX 和 ECX 暫存器，其他暫存器在函數結束時都必須還原，
+  // 依照官方 Delphi 文件 X86 編譯器 EDI, ESI, ESP, EBP, EBX
+  // 這些暫存器退出函數時都必須還原。
   // 所以期間使用到的都必須還原，因此在開頭先行推入堆疊以保存數值。
   push ebx                 // 推入堆疊以保留暫存器值
   push esi
-  push edi
 
   mov  ebx, Data           // 複製 Data(資料指標) 至 pBlock(暫存器 ebx)
 
@@ -765,19 +765,17 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
 //  mov  Result, eax // 這裡已經輸出到結果 暫存器 EAX，因此不需要了
 
   // end;                  // 函數結束
-  pop  edi                 // 由堆疊取出以還原 暫存器 值
-  pop  esi
+  pop  esi                 // 由堆疊取出以還原 暫存器 值
   pop  ebx
 end;
 {$ELSE CPUX86 AND UseASM}
 {$IF Defined(CPUX64) AND Defined(UseASM)}
 // X64 與 X86 步驟上差不多，只是使用的暫存器略有不同而已，因此改用其他方式表示。
 asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
-  // 除了 EAX、EDX 和 ECX 暫存器，其他暫存器在函數結束時都必須還原
-  // begin                 // 保留暫存器值
-  push rbp
-  sub  rsp, $10
-  mov  rbp, rsp
+  // begin
+  // 依照官方 Delphi 文件 X64 編譯器 R12...R15, RDI, RSI, RBX, RBP, RSP, XMM4...XXMM15
+  // 這些暫存器退出函數時都必須還原。
+  // 但沒用到其他暫存器與堆疊，所以不需要前置的保存動作
 
   mov   r9, rcx            // pBlock := PCardinal(@Data);
 
@@ -820,8 +818,8 @@ asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
 
   // K := (PCardinal(pBlock)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
   or   rax, -$01           // {M} := Cardinal(-1)
-  shl  rcx, $03            // nLastBytes := nLastBytes * 8
-  shl  rax, cl             // {M} := {M} shl nLastBytes
+  shl  rcx, $03            // {Bits} := nLastBytes * 8
+  shl  rax, cl             // {M} := {M} shl {Bits}
   not  rax                 // {M} := not {M};
   and  eax, [r9]           // K   := {M} and pBlock^
 
@@ -852,9 +850,7 @@ asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
 
 //  mov  Result, rax         // Result := H; // 回傳就是 rax 所以這行不需要
 
-  // end;                  // 還原 暫存器 值
-  lea  rsp, [rbp+$10]
-  pop  rbp
+  // end;                  // 無值需要還原
 end;
 {$ELSE CPUX86 AND UseASM}
 var

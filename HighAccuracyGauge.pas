@@ -5,7 +5,9 @@
 // 參考：
 //   https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps
 //   https://en.wikipedia.org/wiki/High_Precision_Event_Timer
-// 說明：利用 WindowsAPI QPC 取得高精度時間，通常用來量測效能的極小差異
+// 說明：
+//   利用 WindowsAPI QPC (QueryPerformanceCounter) 取得高精度時間，
+//   通常用來量測效能的極小差異。
 //
 // 作用：
 // 1. TPerformanceGauge
@@ -14,15 +16,20 @@
 //    建立或取得共用的 TPerformanceGauge，但不可同時使用在不同執行序上。
 //
 // * 關於 TPerformanceGauge.ShotStart(Calibration = True)
-//   在近期高性能 CPU上擷取開銷極小(目前我的機器平均為 1tick)，
+//   在近期高性能 CPU上擷取開銷極小(目前我的機器平均為不到 1tick)，
 //   因此在高性能 CPU上可以忽視(因此 Calibration 預設值是 False)。
+// * 可使用外部設定差值 TPerformanceGauge.Deviation，但執行 Test 後會被覆蓋
+//   - 若要以外部值為主請在使用這些方法時達成條件
+//       ShotStart(Calibration = Flase))               ** 預設
+//       Initialize(Options 不包含 _PGO_Calibration)   ** 預設
 //
 // 歷程：
 //   2025年05月01日 釋出 (註解修編於 2025年11月16日)
+//   2025年11月08日 主要改進 (呼叫測量函數的時間開銷) 的測量方式，與補充說明
 //
 // 其他：<無>
 //
-// 最後變更日期：2025年11月16日
+// 最後變更日期：2025年11月18日
 //
 
 // English
@@ -45,24 +52,38 @@
 //
 // * Regarding TPerformanceGauge.ShotStart(Calibration = True)
 //   The overhead for capture on modern high-performance CPUs is extremely small
-//   (currently averaging 1 tick on my machine).
+//   (currently averaging less than 1 tick on my machine).
 //   Therefore, it can be ignored on high-performance CPUs
 //   (hence the default value for Calibration is False).
+// * The external deviation value TPerformanceGauge.Deviation can be used,
+//   but it will be overwritten after executing Test.
+//   - If you want to prioritize the external value,
+//     ensure the following conditions are met when using these methods:
+//       ShotStart(Calibration = False)                         ** It's already default
+//       Initialize(Options does not include _PGO_Calibration)  ** It's already default
 //
 // History:
-//   May 1 2025 Released ( Program comments revised on Nov 16 2025 )
+//   May  1 2025 Released ( Program comments revised on Nov 16 2025 )
+//   Nov 18 2025
+//     * Improvement in the measurement method for
+//       (time overhead of calling the measurement function)
+//     * Supplementary explanation.
 //
 // Others: <None>
 //
-// Last Modified Date: Nov 16 2025
+// Last Modified Date: Nov 18 2025
 //
 
 unit HighAccuracyGauge;
+
+{$O+}        // Optimization
+{$INLINE ON} // ON|OFF|AUTO
 
 interface
 
 uses
   Winapi.Windows, System.SysUtils;
+
 
 type
   TTimeUnit = (
@@ -100,24 +121,31 @@ type
 
   TPerformanceGauge = class(TObject)
   private const
-    DefaultTests = 100;
+    DefaultTests = 100;          // Number of tests.
+    TestLoop = 10000;            // Number of loops per test.
   private
-    FTests: Byte;                // Number of tests.
-    FDeviation: Cardinal;        // [Ticks] Time overhead during measurement
     FStamps: TPerformanceStamps; // Data by QPC
+    FTests: Byte;                // Number of tests.
+    FInternalDeviation: Single;  // Time overhead during measurement.
+    FDeviation: Cardinal;        // [Ticks] Trunc(FDeviationFloat)
     FTotal: UInt64;              // [Ticks] EndTick - StartTick = TotalTick
 
+    // Get the current tick stamp value.
     function GetFrequency: Int64; inline;
     function GetStarting: Int64; inline;
     function GetEnding: Int64; inline;
 
+    // Windows QCP.
     procedure QueryCounter(var lpPerformanceCount: TLargeInteger); inline;
     procedure QueryFrequency(var lpPerformanceCount: TLargeInteger); overload; inline;
     procedure QueryFrequency; overload; inline;
     procedure QueryStarting; inline;
     procedure QueryEnding; inline;
 
+    // Get the timer tick.
     function GetLastTicks: Int64; inline;
+
+    // Get time the timer tick.
     function GetLastTime(U: TTimeUnit): Int64; overload; inline;
     function GetLastTimeF(U: TTimeUnit): Currency; overload; inline;
     function GetLastTime(out Value: Int64; out TimeUnit: TTimeUnit): Boolean; overload; //inline;
@@ -127,35 +155,45 @@ type
     function GetLastTimeStrF(TimeUnit: TTimeUnit): string; overload; //inline;
     function GetLastTimeStrF: string; overload; //inline;
 
+    // Add the current tick count to FTotal.
     procedure IncreaseToTotal; inline;
 
+    // Get the time value in the specified time unit.
     function GetTimeByUnit(out Value: Int64; TimeUnit: TTimeUnit): Boolean; overload; inline;
     function GetTimeByUnit(out Value: Currency; TimeUnit: TTimeUnit): Boolean; overload; inline;
   public
     constructor Create;
     destructor Destroy; override;
 
-    function Test(Count: Byte): Integer;
+    // Test the time cost of using QueryStarting and QueryEnding.
+    procedure Test(Count: Byte);
 
     procedure ZeroTotal ; inline;
     procedure Initialize(Options: TPerformanceGaugeOptions = []); inline;
 
+    // Catch the timer tick.
     function Shot: Boolean; inline;
     procedure ShotStart(Calibration: Boolean = False); inline;
     procedure ShotEnd; inline;
 
+    // Calculate the duration of time using the number of ticks from the timer.
     procedure CalcTimeByUnit(out ValueOut: Int64; TicksIn: Int64; TimeUnit: TTimeUnit); overload; //inline;
     procedure CalcTimeByUnit(out ValueOut: Currency; TicksIn: Int64; TimeUnit: TTimeUnit); overload; //inline;
     function CalcTimeSimilar(out ValueOut: Int64; TicksIn: Int64): TTimeUnit; overload;
     function CalcTimeSimilar(out ValueOut: Currency; TicksIn: Int64): TTimeUnit; overload;
 
+    // Convert the tick count of a timer into a time length in a specified unit and output the string.
     function GetTimeStr(Ticks: Int64; TimeUnit: TTimeUnit = _PTU_Auto): string;
     function GetTimeStrF(Ticks: Int64; TimeUnit: TTimeUnit = _PTU_Auto): string;
 
+    // Get a timer ticks from the Start-End. (If has not started, it will return False)
     function GetTicks(out Value: Int64): Boolean; inline;
+
+    // Get a time string for the Start-End.
     function GetTime(out Value: Int64; out TimeUnit: TTimeUnit): Boolean; overload; inline;
     function GetTime: string; overload; inline;
 
+    // Get time by timer tick.
     function GetSecond(out Value: Int64): Boolean; overload; inline;
     function GetSecond(out Value: Currency): Boolean; overload; inline;
     function GetMillisecond(out Value: Int64): Boolean; overload; inline;
@@ -165,6 +203,7 @@ type
     function GetNanoseconds(out Value: Int64): Boolean; overload; inline;
     function GetNanoseconds(out Value: Currency): Boolean; overload; inline;
 
+    // Set or get the number of tests.
     property Tests: Byte read FTests write FTests;
 
     // Ticks
@@ -173,6 +212,7 @@ type
     property Starting: Int64 read GetStarting;
     property Ending: Int64 read GetEnding;
     property Total: UInt64 read FTotal; // Time
+    property InternalDeviation: Single read FInternalDeviation;
     property Deviation: Cardinal read FDeviation write FDeviation;
     property LastTicks: Int64 read GetLastTicks;
 
@@ -195,9 +235,6 @@ function Performance: TPerformanceGauge;
 
 implementation
 
-const
-  cOneThousand = 1000;
-
 var
   PerformanceGauge: TPerformanceGauge = nil;
 
@@ -214,10 +251,11 @@ end;
 constructor TPerformanceGauge.Create;
 begin
   FTests := DefaultTests;
-  FDeviation := 0;
-  FStamps.Frequency := -1;
-  FStamps.Starting  := -1;
-  FStamps.Ending    := -1;
+  FInternalDeviation :=  0;
+  FDeviation         :=  0;
+  FStamps.Frequency  := -1;
+  FStamps.Starting   := -1;
+  FStamps.Ending     := -1;
   ZeroTotal;
   QueryFrequency;
 end;
@@ -291,92 +329,108 @@ begin
   QueryCounter(FStamps.Ending);
 end;
 
-function TPerformanceGauge.Test(Count: Byte): Integer;
+procedure TPerformanceGauge.Test(Count: Byte);
 const
   Affect = 3;
 var
-  I, J: Integer;
+  I, J, C: Integer;
   Value, Min, Max: Cardinal;
-  AverageA, AverageB: Cardinal;
   iA, iB: Int64;
+  tA, tB: Cardinal;
+  Average: Cardinal;
   N: array of Cardinal;
 begin
+  //
+  // 如果測試數為零，則清除時間開銷設定為 0。
+  //
+  if Count = 0 then
+  begin
+    FDeviation         := 0;
+    FInternalDeviation := 0;
+    Exit;
+  end;
+
   SetLength(N, Count);
   Min := Integer.MaxValue;
   Max := 0;
+  tB  := 0;
 
   I := 0;
   while I < Count do
   begin
-    QueryCounter(iA);
-    QueryStarting;
-    QueryEnding;
-    QueryCounter(iB);
 
-    Value := iB - iA;
-    if Value < Min then Min := Value;
-    if Value > Max then Max := Value;
-    N[I] := Value;
+    //
+    // 本測試的迴圈時間開銷
+    //
+    QueryCounter(iA);
+    J := 0;
+    while J < TestLoop do
+    begin
+      Inc(J);
+    end;
+    QueryCounter(iB);
+    tA := iB - iA;
+
+    //
+    // 循環測試
+    //
+    QueryCounter(iA);
+    J := 0;
+    while J < TestLoop do
+    begin
+      QueryStarting;
+      QueryEnding;
+      Inc(J);
+    end;
+    QueryCounter(iB);
+    tB := iB - iA;
+
+    //
+    // 扣除迴圈時間花費
+    //
+    if tB > tA then
+      Dec(tB, tA);
+
+    //
+    // 紀錄本次測試結果
+    //
+    N[I] := tB;
+    if tB < Min then Min := tB;
+    if tB > Max then Max := tB;
 
     Inc(I);
   end;
 
-  if Min <= 0 then
-    Min := 1;
-  AverageA := Round((Max + Min) / 2);
-  if (AverageA > (Min * Affect)) or (Min < (Max div Affect)) then
-    AverageA := Min * Affect;
+  //
+  // 如果只有測試一次，直接取得測試結果
+  //
+  if Count = 1 then
+  begin
+    FInternalDeviation := tB / TestLoop;
+    FDeviation         := Trunc(FInternalDeviation);
+    Exit;
+  end;
 
-  AverageB := 0;
+  //
+  // 取得時間開銷
+  //
+  Average := ((Max - Min) shr 1) + Min;
+  C := 0;
   J := 0;
-  for I := 0 to Count - 1 do
+  I := 0;
+  while I < Count do
   begin
     Value := N[I];
-    if Value > AverageA then
+    Inc(I);
+    if Value <= Average then
     begin
-      N[I] := Cardinal.MaxValue;
-    end
-    else
-    begin
-      Inc(AverageB, Value);
+      Inc(C, Value);
       Inc(J);
     end;
   end;
 
-  AverageA := Round(AverageB / J);
-
-  if J = Count then
-    Exit(AverageA);
-
-  Min := Integer.MaxValue;
-  Max := 0;
-  AverageB := 0;
-  I := 0;
-  while I < Count do
-  begin
-    Value := N[I];
-    if Value = Cardinal.MaxValue then
-    begin
-      QueryCounter(iA);
-      QueryStarting;
-      QueryEnding;
-      QueryCounter(iB);
-
-      Value := iB - iA;
-      N[I] := Value;
-    end;
-    if Value < Min then Min := Value;
-    if Value > Max then Max := Value;
-
-    if Value <= ((AverageA + Max) shr 1) then
-    begin
-      Inc(AverageB, Value);
-    end;
-    Inc(I);
-  end;
-
-  AverageB := Round(AverageB / Count);
-  Result := AverageB;
+  FInternalDeviation := C / J / TestLoop;
+  FDeviation         := Trunc(FInternalDeviation);
 end;
 
 procedure TPerformanceGauge.ZeroTotal;
@@ -388,14 +442,16 @@ procedure TPerformanceGauge.Initialize(Options: TPerformanceGaugeOptions);
 begin
   ZeroTotal;
   if _PGO_Calibration in Options then
-    FDeviation := Test(FTests)
-  else
-    FDeviation := 0;
+  begin
+    Test(FTests);
+  end;
   FStamps.Ending := -1;
-  if _PGO_FirstShot in Options then
-    QueryStarting
-  else
+  if not(_PGO_FirstShot in Options) then
+  begin
     FStamps.Starting := -1;
+    Exit;
+  end;
+  QueryStarting;
 end;
 
 function TPerformanceGauge.Shot: Boolean;
@@ -637,9 +693,7 @@ function TPerformanceGauge.GetLastTicks: Int64;
 begin
   if (FStamps.Frequency <= 0) or (FStamps.Starting < 0) or (FStamps.Ending < 0) then
     Exit(-1);
-  Result := FStamps.Ending - FStamps.Starting;
-  if (Result > FDeviation) and (FDeviation > 0) then
-    Dec(Result, FDeviation);
+  Result := FStamps.Ending - FStamps.Starting - FDeviation;
 end;
 
 function TPerformanceGauge.GetLastTime(out Value: Int64; out TimeUnit: TTimeUnit): Boolean;
