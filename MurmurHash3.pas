@@ -31,10 +31,11 @@
 // 歷程：
 //   2025年11月16日 建立，與發佈後的註解修正
 //   2025年11月17日 改進組合語言演算性能，與去除多餘的編譯指示設定
+//   2025年11月18日 微調組合語言指令
 //
 // 其他：<無>
 //
-// 最後變更日期：2025年11月18日
+// 最後變更日期：2025年11月19日
 //
 
 
@@ -73,10 +74,12 @@
 //   Nov 17, 2025
 //     Assembly code performance improvement.
 //     Removal of superfluous compiler directive settings.
+//   Nov 18, 2025
+//     Minor adjustment of assembly language instructions to align some assembly binary code.
 //
 // Others: <None>
 //
-// Last modified date: Nov 18, 2025
+// Last modified date: Nov 19, 2025
 //
 
 
@@ -642,10 +645,10 @@ end;
 //
 //   X86 Pascal A 666t / X86 Pascal B 976t =  68.23%
 //   X64 Pascal A 672t / X64 Pascal B 970t =  69.27%
-//   X86 Pascal A 666t / X86 ASM    B 255t = 261.17%
-//   X64 Pascal A 672t / X64 ASM    B 256t = 262.50%
+//   X86 Pascal A 666t / X86 ASM    B 254t = 262.20%
+//   X64 Pascal A 672t / X64 ASM    B 249t = 269.87%
 //
-//   X86 ASM    B 255t / X64 ASM    B 256t =  99.60%
+//   X86 ASM    B 254t / X64 ASM    B 249t = 102.00%
 //
 // 目前看起來 MurmurHash3_32bit_x86 ASM 在 X86 與 X64 編譯後執行速度很可能極度接近，
 // 只是我沒有進行高次數的測試，所以尚未取得更短的時間，這也取決於測試環境。
@@ -677,6 +680,7 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // for I := 1 to nBlocks do
   jz   @@endloop0          // 若 nBlocks 為 0 則轉跳至 endloop0；當 CPU 旗標 ZF = 1 時轉跳
 
+  .align 16                // 用於產生編譯時對齊指令的偽指令，使轉跳點(@@loop0)的指令對齊
 @@loop0:
   // K := pBlock^;
   mov  eax, [ebx]          // 取得 pBlock 位址的值 至 K(暫存器 EAX)
@@ -699,8 +703,8 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // for I := 1 to nBlocks do
   dec  esi                 // 將 nBlocks - 1；DEC 值若為零 ZF = 1，不是零 ZF = 0
   jnz  @@loop0             // 若 nBlocks 不是 0 則跳回到 loop0；ZF = 0 則轉跳
-@@endloop0:
 
+@@endloop0:
   // 為了讓 SHL 使用 CL(ECX) 以做動態遮罩，先將 pBlock(暫存器 EBX) 位址的值先取出，
   // 以空出 暫存器 EBX 再利用，雖然 Len and 3 = 0 時依然多做一次暫存器複製(mov  ebx, ecx)，
   // 但損耗極小，至少比存取暫存器以外的方式還快。
@@ -733,8 +737,8 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   imul eax, eax, $1b873593 // 將 K 值乘 $1b873593
   // H := H xor K;
   xor  ebx, eax            // 將 H(暫存器 ECX) XOR K(暫存器 EAX)
-@@if0:
 
+@@if0:
   //
   // 終結計算
   //
@@ -789,6 +793,7 @@ asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
   // for I := 1 to nBlocks do
   jz  @@endloop0           // if I = 0 then goto @@endloop0
 
+  .align 16                // 用於產生編譯時對齊指令的偽指令，使轉跳點(@@loop0)的指令對齊
 @@loop0:
   mov  eax, [r9]           // K := pBlock^;
   add   r9, $04            // Inc(pBlock);
@@ -799,20 +804,19 @@ asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
   rol  r8d, $0d            // H := ROTL32(H, 13);
 
   // H := H * 5 + $e6546b64;
-  lea   r8, [r8+r8*4]      // H := H * 5
-  add   r8, $e6546b64      // H := H + $e6546b64
+  lea  r8, [r8+r8*4]       // H := H * 5
+  add  r8d, $e6546b64      // H := H + $e6546b64
 
   // for I := 1 to nBlocks do
   dec  r10                 // Dec(I)
   jnz  @@loop0             // if I <> 0 then goto @@endloop0
-//  nop
-@@endloop0:
 
+@@endloop0:
   //
   // 處理尾端非完整區塊
   //
 
-  mov  rcx, $03            // nLastBytes := Len
+  mov   cl, $03            // nLastBytes := Len
   and  rcx, rdx            // nLastBytes := Len and 3
   jz   @@if0               // if nLastBytes = 0 then goto @@if0
 

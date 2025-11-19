@@ -1,35 +1,35 @@
-// ¤¤¤å
+ï»¿// ä¸­æ–‡
 //
-// Ãþ«¬¡G°ªºë«×®É¶¡´ú¶q
-// ½s¼g¡GWei-Lun Huang
-// °Ñ¦Ò¡G
+// é¡žåž‹ï¼šé«˜ç²¾åº¦æ™‚é–“æ¸¬é‡
+// ç·¨å¯«ï¼šWei-Lun Huang
+// åƒè€ƒï¼š
 //   https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps
 //   https://en.wikipedia.org/wiki/High_Precision_Event_Timer
-// »¡©ú¡G
-//   §Q¥Î WindowsAPI QPC (QueryPerformanceCounter) ¨ú±o°ªºë«×®É¶¡¡A
-//   ³q±`¥Î¨Ó¶q´ú®Ä¯àªº·¥¤p®t²§¡C
+// èªªæ˜Žï¼š
+//   åˆ©ç”¨ WindowsAPI QPC (QueryPerformanceCounter) å–å¾—é«˜ç²¾åº¦æ™‚é–“ï¼Œ
+//   é€šå¸¸ç”¨ä¾†é‡æ¸¬æ•ˆèƒ½çš„æ¥µå°å·®ç•°ã€‚
 //
-// §@¥Î¡G
+// ä½œç”¨ï¼š
 // 1. TPerformanceGauge
-//    ¦pªG»Ý­n¦h²Õ¤£¦P´ú¶q¡A©Î¥Î©ó¤£¦P°õ¦æÄò¡C
+//    å¦‚æžœéœ€è¦å¤šçµ„ä¸åŒæ¸¬é‡ï¼Œæˆ–ç”¨æ–¼ä¸åŒåŸ·è¡ŒçºŒã€‚
 // 2. PerformanceGauge
-//    «Ø¥ß©Î¨ú±o¦@¥Îªº TPerformanceGauge¡A¦ý¤£¥i¦P®É¨Ï¥Î¦b¤£¦P°õ¦æ§Ç¤W¡C
+//    å»ºç«‹æˆ–å–å¾—å…±ç”¨çš„ TPerformanceGaugeï¼Œä½†ä¸å¯åŒæ™‚ä½¿ç”¨åœ¨ä¸åŒåŸ·è¡Œåºä¸Šã€‚
 //
-// * Ãö©ó TPerformanceGauge.ShotStart(Calibration = True)
-//   ¦bªñ´Á°ª©Ê¯à CPU¤WÂ^¨ú¶}¾P·¥¤p(¥Ø«e§Úªº¾÷¾¹¥­§¡¬°¤£¨ì 1tick)¡A
-//   ¦]¦¹¦b°ª©Ê¯à CPU¤W¥i¥H©¿µø(¦]¦¹ Calibration ¹w³]­È¬O False)¡C
-// * ¥i¨Ï¥Î¥~³¡³]©w®t­È TPerformanceGauge.Deviation¡A¦ý°õ¦æ Test «á·|³QÂÐ»\
-//   - ­Y­n¥H¥~³¡­È¬°¥D½Ð¦b¨Ï¥Î³o¨Ç¤èªk®É¹F¦¨±ø¥ó
-//       ShotStart(Calibration = Flase))               ** ¹w³]
-//       Initialize(Options ¤£¥]§t _PGO_Calibration)   ** ¹w³]
+// * é—œæ–¼ TPerformanceGauge.ShotStart(Calibration = True)
+//   åœ¨è¿‘æœŸé«˜æ€§èƒ½ CPUä¸Šæ“·å–é–‹éŠ·æ¥µå°(ç›®å‰æˆ‘çš„æ©Ÿå™¨å¹³å‡ç‚ºä¸åˆ° 1tick)ï¼Œ
+//   å› æ­¤åœ¨é«˜æ€§èƒ½ CPUä¸Šå¯ä»¥å¿½è¦–(å› æ­¤ Calibration é è¨­å€¼æ˜¯ False)ã€‚
+// * å¯ä½¿ç”¨å¤–éƒ¨è¨­å®šå·®å€¼ TPerformanceGauge.Deviationï¼Œä½†åŸ·è¡Œ Test å¾Œæœƒè¢«è¦†è“‹
+//   - è‹¥è¦ä»¥å¤–éƒ¨å€¼ç‚ºä¸»è«‹åœ¨ä½¿ç”¨é€™äº›æ–¹æ³•æ™‚é”æˆæ¢ä»¶
+//       ShotStart(Calibration = Flase))               ** é è¨­
+//       Initialize(Options ä¸åŒ…å« _PGO_Calibration)   ** é è¨­
 //
-// ¾úµ{¡G
-//   2025¦~05¤ë01¤é ÄÀ¥X (µù¸Ñ­×½s©ó 2025¦~11¤ë16¤é)
-//   2025¦~11¤ë08¤é ¥D­n§ï¶i (©I¥s´ú¶q¨ç¼Æªº®É¶¡¶}¾P) ªº´ú¶q¤è¦¡¡A»P¸É¥R»¡©ú
+// æ­·ç¨‹ï¼š
+//   2025å¹´05æœˆ01æ—¥ é‡‹å‡º (è¨»è§£ä¿®ç·¨æ–¼ 2025å¹´11æœˆ16æ—¥)
+//   2025å¹´11æœˆ08æ—¥ ä¸»è¦æ”¹é€² (å‘¼å«æ¸¬é‡å‡½æ•¸çš„æ™‚é–“é–‹éŠ·) çš„æ¸¬é‡æ–¹å¼ï¼Œèˆ‡è£œå……èªªæ˜Ž
 //
-// ¨ä¥L¡G<µL>
+// å…¶ä»–ï¼š<ç„¡>
 //
-// ³Ì«áÅÜ§ó¤é´Á¡G2025¦~11¤ë18¤é
+// æœ€å¾Œè®Šæ›´æ—¥æœŸï¼š2025å¹´11æœˆ18æ—¥
 //
 
 // English
@@ -285,8 +285,8 @@ procedure TPerformanceGauge.QueryCounter(var lpPerformanceCount: TLargeInteger);
 begin
 // https://learn.microsoft.com/en-us/windows/win32/api/profileapi/nf-profileapi-queryperformancecounter
 
-// ¤¤¤å
-// QueryPerformanceCounter ¦b Windows XP ©Î¤§«á Result ¤£À³¬° False¡A¦]¬°Á`¬O¦^À³True¡C
+// ä¸­æ–‡
+// QueryPerformanceCounter åœ¨ Windows XP æˆ–ä¹‹å¾Œ Result ä¸æ‡‰ç‚º Falseï¼Œå› ç‚ºç¸½æ˜¯å›žæ‡‰Trueã€‚
 
 // English
 // In Windows XP and later, the QueryPerformanceCounter result should not be False,
@@ -300,8 +300,8 @@ procedure TPerformanceGauge.QueryFrequency(var lpPerformanceCount: TLargeInteger
 begin
 // https://learn.microsoft.com/en-us/windows/win32/api/profileapi/nf-profileapi-queryperformancefrequency
 
-// ¤¤¤å
-// QueryPerformanceFrequency ¦b Windows XP ©Î¤§«á Result ¤£À³¬° False¡A¦]¬°Á`¬O¦^À³True¡C
+// ä¸­æ–‡
+// QueryPerformanceFrequency åœ¨ Windows XP æˆ–ä¹‹å¾Œ Result ä¸æ‡‰ç‚º Falseï¼Œå› ç‚ºç¸½æ˜¯å›žæ‡‰Trueã€‚
 
 // English
 // In Windows XP and later, the QueryPerformanceFrequency result should not be False,
@@ -341,7 +341,7 @@ var
   N: array of Cardinal;
 begin
   //
-  // ¦pªG´ú¸Õ¼Æ¬°¹s¡A«h²M°£®É¶¡¶}¾P³]©w¬° 0¡C
+  // å¦‚æžœæ¸¬è©¦æ•¸ç‚ºé›¶ï¼Œå‰‡æ¸…é™¤æ™‚é–“é–‹éŠ·è¨­å®šç‚º 0ã€‚
   //
   if Count = 0 then
   begin
@@ -360,7 +360,7 @@ begin
   begin
 
     //
-    // ¥»´ú¸Õªº°j°é®É¶¡¶}¾P
+    // æœ¬æ¸¬è©¦çš„è¿´åœˆæ™‚é–“é–‹éŠ·
     //
     QueryCounter(iA);
     J := 0;
@@ -372,7 +372,7 @@ begin
     tA := iB - iA;
 
     //
-    // ´`Àô´ú¸Õ
+    // å¾ªç’°æ¸¬è©¦
     //
     QueryCounter(iA);
     J := 0;
@@ -386,13 +386,13 @@ begin
     tB := iB - iA;
 
     //
-    // ¦©°£°j°é®É¶¡ªá¶O
+    // æ‰£é™¤è¿´åœˆæ™‚é–“èŠ±è²»
     //
     if tB > tA then
       Dec(tB, tA);
 
     //
-    // ¬ö¿ý¥»¦¸´ú¸Õµ²ªG
+    // ç´€éŒ„æœ¬æ¬¡æ¸¬è©¦çµæžœ
     //
     N[I] := tB;
     if tB < Min then Min := tB;
@@ -402,7 +402,7 @@ begin
   end;
 
   //
-  // ¦pªG¥u¦³´ú¸Õ¤@¦¸¡Aª½±µ¨ú±o´ú¸Õµ²ªG
+  // å¦‚æžœåªæœ‰æ¸¬è©¦ä¸€æ¬¡ï¼Œç›´æŽ¥å–å¾—æ¸¬è©¦çµæžœ
   //
   if Count = 1 then
   begin
@@ -412,7 +412,7 @@ begin
   end;
 
   //
-  // ¨ú±o®É¶¡¶}¾P
+  // å–å¾—æ™‚é–“é–‹éŠ·
   //
   Average := ((Max - Min) shr 1) + Min;
   C := 0;
@@ -463,7 +463,7 @@ begin
   if FStamps.Starting < 0 then
   begin
     Result := False;
-    // ­«·s¬d¸ß­p¼Æ¾¹¡A¨Ï±o¨C­Ó QueryCounter ³B²z¹Lµ{¤¤´î¤Ö¨ä¥L³B²z¥H´î¤Ö»~®t­È¡C
+    // é‡æ–°æŸ¥è©¢è¨ˆæ•¸å™¨ï¼Œä½¿å¾—æ¯å€‹ QueryCounter è™•ç†éŽç¨‹ä¸­æ¸›å°‘å…¶ä»–è™•ç†ä»¥æ¸›å°‘èª¤å·®å€¼ã€‚
     // Re-query the counter to reduce the difference caused by other processes
     // during each QueryCounter process.
     QueryStarting;
