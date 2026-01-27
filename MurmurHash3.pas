@@ -945,15 +945,12 @@ begin
   if nLastBytes <> 0 then
   begin
     pLeftover := PByte(pBlock);
-    {$IF ALIGN >= 4} // 當記憶體對齊大於等於 4 時可以直接使用 PCardinal 指標。
-    K := (PCardinal(pLeftover)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
-    {$ELSE}          // 當對齊小於 4 時僅在有效範圍內對記憶體存取
-    case tmp of
+	
+    case nLastBytes of
       3: K1 := Cardinal(PWord(pLeftover)^) or pLeftover[2];
       2: K1 := Cardinal(PWord(pLeftover)^));
       1: K1 := Cardinal(pLeftover[2]);
     end;
-    {$IFEND}
 
     K := K * $cc9e2d51;
     K := ROTL32(K, 15);
