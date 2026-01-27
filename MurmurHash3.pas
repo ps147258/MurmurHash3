@@ -32,10 +32,12 @@
 //   2025年11月16日 建立，與發佈後的註解修正
 //   2025年11月17日 改進組合語言演算性能，與去除多餘的編譯指示設定
 //   2025年11月18日 微調組合語言指令
+//   2026年01月24日 改進 MurmurHash3_32bit_x86 未滿一個區塊的剩餘資料處理，
+//                  完全精確存取指定位址Byte，以排除可能發生的存取越界問題。
 //
 // 其他：<無>
 //
-// 最後變更日期：2025年11月19日
+// 最後變更日期：2026年01月24日
 //
 
 
@@ -76,10 +78,13 @@
 //     Removal of superfluous compiler directive settings.
 //   Nov 18, 2025
 //     Minor adjustment of assembly language instructions to align some assembly binary code.
+//   Jan 24, 2026
+//     Enhanced the processing of incomplete blocks in MurmurHash3_x86_32 by ensuring 
+//     only valid bytes are accessed, effectively preventing buffer overreads.
 //
 // Others: <None>
 //
-// Last modified date: Nov 19, 2025
+// Last modified date: Jan 24, 2026
 //
 
 
@@ -680,6 +685,7 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // for I := 1 to nBlocks do
   jz   @@endloop0          // 若 nBlocks 為 0 則轉跳至 endloop0；當 CPU 旗標 ZF = 1 時轉跳
 
+  // >> 已對齊區塊的計算
   .align 16                // 用於產生編譯時對齊指令的偽指令，使轉跳點(@@loop0)的指令對齊
 @@loop0:
   // K := pBlock^;
@@ -703,31 +709,53 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // for I := 1 to nBlocks do
   dec  esi                 // 將 nBlocks - 1；DEC 值若為零 ZF = 1，不是零 ZF = 0
   jnz  @@loop0             // 若 nBlocks 不是 0 則跳回到 loop0；ZF = 0 則轉跳
+  // << 已對齊區塊的計算
 
 @@endloop0:
-  // 為了讓 SHL 使用 CL(ECX) 以做動態遮罩，先將 pBlock(暫存器 EBX) 位址的值先取出，
-  // 以空出 暫存器 EBX 再利用，雖然 Len and 3 = 0 時依然多做一次暫存器複製(mov  ebx, ecx)，
-  // 但損耗極小，至少比存取暫存器以外的方式還快。
-  mov  eax, [ebx]          // 取得 pBlock 位址的值 至 暫存器 EAX
-  mov  ebx, ecx            // 將 H 由 暫存器 ECX 改至 暫存器 EBX
+
+  // nLastBytes := Len and 3;
+  mov  eax, Len            // 將 Len(暫存器 EDX) 複製到 暫存器 EAX
+  and  eax, $03            // 取 4 的餘數，Len and 3 截斷後只留下 0 ~ 3 的值等同於 Len mod 4
+  jz   @@if0               // 如果 nLastBytes 為 0 (ZF = 1)則轉跳至 @@if0
 
   //
-  // 處理尾端非完整區塊
+  // 處理剩餘區資料(尾端不足一個區塊的資料量)
   //
 
-  // nLastBytes := Len and 3; // 取得 Len 除 4 的餘數存入至 nLastBytes
-  mov  ecx, $03            // 設定二進位 00...0011 至 nLastBytes(暫存器 ECX) 做為遮罩
-  and  ecx, Len            // 將 nLastBytes(暫存器 ECX) AND Len；and 後值若為 0 則 ZF = 1，反之 ZF = 0
+  // Inc(PByte(pBlock), nLastBytes - 1);
+  add  ebx, eax
+  dec  ebx
 
-  // if nLastBytes = 0 then goto @@if0
-  jz   @@if0               // 如果 nLastBytes 為 0 則轉跳至 @@if0；ZF = 1 則轉跳
+  // if nLastBytes = 2 then goto @@if2 else if nLastBytes > 2 then goto @@if1;
+  // >> if nLastBytes = 2 then ...
+  cmp  eax, 2              // 比較上面的值 (Len mod 4) 與 2 相比 (CPU 會設定判斷結果旗標)
+  
+  // K := 0;
+  mov  eax, 0              // 清除 EAX 為 0 (MOV 指令不會變動 CPU 旗標)
+  
+  je   @@if2               // 如果等於 2，這裡也就表示 Len = 2 (依據前面 CMP 的旗標)
+  jb   @@if1               // 如果小於 2，這裡也就表示 Len = 1 (依據前面 CMP 的旗標)
+  // << if nLastBytes = 2 then ...
 
-  // K := (PCardinal(pLeftover)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
-  or   esi, -$01           // 設定 暫存器 SEI 為 -$01($FFFFFFFF) 做為遮罩，利用補 0 機制，稍後還要翻轉位元
-  shl  ecx, $03            // 將 nLastBytes 乘 8
-  shl  esi, cl             // 將 暫存器 SEI 向左移動數次(由上面 nLastBytes * 8 次)
-  not  esi                 // 翻轉 暫存器 SEI 位元，這裡使遮罩變為有效
-  and  eax, esi            // 將 暫存器 EAX 以 暫存器 ESI 做遮蔽，只留下有效位元組的數值
+  // 下面利用組合語言 32bit 處理時 使用 AL 會保留前面的 24bit 的特性，
+  // mov al, [r9] 將達成 K := K or PByte(pBlock)^ 的效果。
+  
+  // K := K or PByte(pBlock)^; Dec(PByte(pBlock)); K := K shl 8;
+@@if3:                     // (Len mod 4) = 3
+  mov   al, [ebx]          // 取得尾端倒數第 3 個 Byte 值
+  dec  ebx                 // 前往下一個位元組的指標
+  shl  eax, 8              // 將位元向左移動 1Byte
+
+  // K := K or PByte(pBlock)^; Dec(PByte(pBlock)); K := K shl 8;
+@@if2:                     // (Len mod 4) = 2
+  mov   al, [ebx]          // 取得尾端倒數第 2 個 Byte 值
+  dec  ebx                 // 前往下一個位元組的指標
+  shl  eax, 8              // 將位元向左移動 1Byte
+
+  // K := K or PByte(pBlock)^;
+@@if1:                     // (Len mod 4) = 1
+  mov   al, [ebx]          // 取得尾端倒數第 1 個 Byte 值
+
 
   // K := K * $cc9e2d51;
   imul eax, eax, $cc9e2d51 // 將 K 值乘 $cc9e2d51
@@ -736,22 +764,22 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // K := K * $1b873593;
   imul eax, eax, $1b873593 // 將 K 值乘 $1b873593
   // H := H xor K;
-  xor  ebx, eax            // 將 H(暫存器 ECX) XOR K(暫存器 EAX)
+  xor  ecx, eax            // 將 H(暫存器 ECX) XOR K(暫存器 EAX)
 
-@@if0:
+@@if0:                     // (Len mod 4) = 0
   //
   // 終結計算
   //
 
   // H := H xor Len;
-  xor  ebx, Len            // 將 H(暫存器 ECX) XOR Len
+  xor  ecx, Len            // 將 H(暫存器 ECX) XOR Len(暫存器 EDX)
 
   // 下面為 Fmix32(H) 的展開，這段利用交互使用暫存器做運算，以配合剛好輸出到 EAX
 
   // H := H xor (H shr 16);
-  mov  eax, ebx            // 將 H(暫存器 ECX) 複製到 暫存器 EAX
-  shr  ebx, $10            // 將 暫存器 ECX 右移 16 次
-  xor  eax, ebx            // 將 暫存器 EAX XOR 暫存器 ECX
+  mov  eax, ecx            // 將 H(暫存器 ECX) 複製到 暫存器 EAX
+  shr  ecx, $10            // 將 暫存器 ECX 右移 16 次
+  xor  eax, ecx            // 將 暫存器 EAX XOR 暫存器 ECX
   // H := H * $85ebca6b;
   imul eax, eax, $85ebca6b // 將 暫存器 EAX 值乘 $1b873593
   // H := H xor (H shr 13);
@@ -775,7 +803,7 @@ end;
 {$ELSE CPUX86 AND UseASM}
 {$IF Defined(CPUX64) AND Defined(UseASM)}
 // X64 與 X86 步驟上差不多，只是使用的暫存器略有不同而已，因此改用其他方式表示。
-asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
+asm // parameter: RCX(Data), RDX(Len), R8D(Seed)
   // begin
   // 依照官方 Delphi 文件 X64 編譯器 R12...R15, RDI, RSI, RBX, RBP, RSP, XMM4...XXMM15
   // 這些暫存器退出函數時都必須還原。
@@ -816,16 +844,42 @@ asm // parameter: RCX(Data), EDX(Len), R8D(Seed)
   // 處理尾端非完整區塊
   //
 
-  mov   cl, $03            // nLastBytes := Len
-  and  rcx, rdx            // nLastBytes := Len and 3
-  jz   @@if0               // if nLastBytes = 0 then goto @@if0
+  // nLastBytes := Len and 3;
+  mov  rax, rdx            // nLastBytes := Len;
+  and  rax, $03            // nLastBytes := nLastBytes and 3;
+  jz   @@if0               // if nLastBytes = 0 then @@if0;
 
-  // K := (PCardinal(pBlock)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - nLastBytes) * 8)));
-  or   rax, -$01           // {M} := Cardinal(-1)
-  shl  rcx, $03            // {Bits} := nLastBytes * 8
-  shl  rax, cl             // {M} := {M} shl {Bits}
-  not  rax                 // {M} := not {M};
-  and  eax, [r9]           // K   := {M} and pBlock^
+  // Dec(PByte(pBlock), nLastBytes - 1);
+  add   r9, rax            // Inc(PByte(pBlock), nLastBytes);
+  dec   r9                 // Dec(PByte(pBlock));
+
+  // if nLastBytes = 2 then goto @@if2 else if nLastBytes > 2 then goto @@if1;
+  // >> if nLastBytes = 2 then ...
+  cmp  rax, 2              // 這裡將取得 nLastBytes = 2 判斷結果(旗標)，之後給 je 與 jb 判斷
+  mov  rax, 0              // K := 0; (MOV 指令不會變動標)
+  je   @@if2               // if nLastBytes = 2 then goto @@if2;
+  jb   @@if1               // if nLastBytes > 2 then goto @@if1;
+  // << if nLastBytes = 2 then ...
+
+  // 下面利用組合語言 32bit 處理時 使用 AL 會保留前面的 24bit 的特性，
+  // mov al, [r9] 將達成 K := K or PByte(pBlock)^ 的效果。
+  //
+  // 與 x86 些微不同，當 x64 只有操作低位元 32bit 時則會清除高位元 32bit 為 0，
+  // 所以 mov al, [r9] 後高位元 32bit 將清除為 0，其值將為 00000000????????。
+  
+@@if3:                     // nLastBytes >= 3
+  mov   al, [r9]           // K := K or PByte(pBlock)^;
+  dec   r9                 // Dec(PByte(pBlock));
+  shl  rax, 8              // K := K shl 8;
+
+@@if2:                     // nLastBytes >= 2
+  mov   al, [r9]           // K := K or PByte(pBlock)^;
+  dec   r9                 // Dec(PByte(pBlock));
+  shl  rax, 8              // K := K shl 8;
+
+@@if1:                     // nLastBytes >= 1
+  mov   al, [r9]           // K := K or PByte(pBlock)^;
+
 
   imul eax, eax, $cc9e2d51 // K := K * $cc9e2d51;
   rol  eax, $0f            // K := ROTL32(K, 15);
