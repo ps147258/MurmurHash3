@@ -39,10 +39,14 @@
 //     修正 MurmurHash3_32bit_x86 Pascal 程式碼區塊的尾端資料處理錯誤。
 //     改進去除多餘的函數呼叫。
 //     改正註解。
+//   2026年02月03日
+//     修正 TMurmurHash3_32bit_x86、TMurmurHash3_128bit_x86、TMurmurHash3_128bit_x64 的
+//     Update 方法，當輸大於區塊長度但未對齊區塊的資料，前面已存在緩衝區資料會被忽略處理，
+//    導致非對齊資料的處理順序錯置問題。
 //
 // 其他：<無>
 //
-// 最後變更日期：2026年02月02日
+// 最後變更日期：2026年02月03日
 //
 
 
@@ -92,10 +96,15 @@
 //     Fixed the end-of-line data handling of the MurmurHash3_32bit_x86 Pascal code.
 //     Improved functionality by removing redundant function calls.
 //     Corrected annotations.
+//   Feb 3, 2026
+//     Fixed an issue in the Update method of TMurmurHash3_32bit_x86, TMurmurHash3_128bit_x86,
+//     and TMurmurHash3_128bit_x64, where buffered data was ignored when the input size
+//     exceeded the block length but remained unaligned, leading to an incorrect processing
+//     order of the unaligned data.
 //
 // Others: <None>
 //
-// Last modified date: Feb 02, 2026
+// Last modified date: Feb 03, 2026
 //
 
 
@@ -500,6 +509,7 @@ implementation
 
 resourcestring
   errCanNotUpdate = 'MurmurHash: Cannot update a finalized hash';
+  errNoData = 'MurmurHash: No source data';
 
 
 function Offset(p: Pointer; Amount: Integer): Pointer; inline;
@@ -1384,6 +1394,9 @@ begin
     raise EHashException.CreateRes(@errCanNotUpdate);
 
   pData := @AData; // 取得來源資料起始位元組指標
+  if (not Assigned(pData)) or (ALength = 0) then
+    Exit;
+//    raise EHashException.CreateRes(@errNoData); // 有想規劃當無資料時直接引發例外，但目前直接退出
 
   //
   // 首先處理待處理的資料
@@ -1393,7 +1406,8 @@ begin
   // If the data is less than one block (BlockSize),
   // the data is placed in the buffer (FRemainingData) for later processing.
   //
-  if (FRemainingLength <> 0) and (ALength < SizeOf(FRemainingData)) then
+
+  if FRemainingLength <> 0 then
   begin
     // 若 FRemainingData 中有待處理資料則將新資料補充到 FRemainingData 剩餘可用空間中
     Len := GetDataBlockFlowing32bit(FRemainingData, FRemainingLength, pData, ALength);
@@ -1795,12 +1809,14 @@ begin
     raise EHashException.CreateRes(@errCanNotUpdate);
 
   pData := @AData; // 取得來源資料起始位元組指標
+  if (not Assigned(pData)) or (ALength = 0) then
+    Exit;
 
   //
   // 首先處理待處理的資料
   // 若資料不足一個區塊(BlockSize)，則將資料放置緩衝區(FRemainingData)中待下次處理
   //
-  if (FRemainingLength <> 0) and (ALength < SizeOf(FRemainingData)) then
+  if FRemainingLength <> 0 then
   begin
     // 若 FRemainingData 中有待處理資料則將新資料補充到 FRemainingData 剩餘可用空間中
     Len := GetDataBlockFlowing128bit(FRemainingData, FRemainingLength, pData, ALength);
@@ -2147,12 +2163,14 @@ begin
     raise EHashException.CreateRes(@errCanNotUpdate);
 
   pData := @AData; // 取得來源資料起始位元組指標
+  if (not Assigned(pData)) or (ALength = 0) then
+    Exit;
 
   //
   // 首先處理待處理的資料
   // 若資料不足一個區塊(BlockSize)，則將資料放置緩衝區(FRemainingData)中待下次處理
   //
-  if (FRemainingLength <> 0) and (ALength < SizeOf(FRemainingData)) then
+  if FRemainingLength <> 0 then
   begin
     // 若 FRemainingData 中有待處理資料則將新資料補充到 FRemainingData 剩餘可用空間中
     Len := GetDataBlockFlowing128bit(FRemainingData, FRemainingLength, pData, ALength);
