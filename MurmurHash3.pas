@@ -34,10 +34,15 @@
 //   2025年11月18日 微調組合語言指令
 //   2026年01月24日 改進 MurmurHash3_32bit_x86 未滿一個區塊的剩餘資料處理，
 //                  完全精確存取指定位址Byte，以排除可能發生的存取越界問題。
+//   2026年02月02日
+//     修正 GetDataBlockFlowing32bit 與 GetDataBlockFlowing128bit 可能發生的記憶體存取超出範圍。
+//     修正 MurmurHash3_32bit_x86 Pascal 程式碼區塊的尾端資料處理錯誤。
+//     改進去除多餘的函數呼叫。
+//     改正註解。
 //
 // 其他：<無>
 //
-// 最後變更日期：2026年01月24日
+// 最後變更日期：2026年02月02日
 //
 
 
@@ -79,12 +84,18 @@
 //   Nov 18, 2025
 //     Minor adjustment of assembly language instructions to align some assembly binary code.
 //   Jan 24, 2026
-//     Enhanced the processing of incomplete blocks in MurmurHash3_x86_32 by ensuring 
+//     Enhanced the processing of incomplete blocks in MurmurHash3_x86_32 by ensuring
 //     only valid bytes are accessed, effectively preventing buffer overreads.
+//   Feb 02, 2026
+//     Fixed a potential memory access out-of-range error in GetDataBlockFlowing32bit and
+//     GetDataBlockFlowing128bit.
+//     Fixed the end-of-line data handling of the MurmurHash3_32bit_x86 Pascal code.
+//     Improved functionality by removing redundant function calls.
+//     Corrected annotations.
 //
 // Others: <None>
 //
-// Last modified date: Jan 24, 2026
+// Last modified date: Feb 02, 2026
 //
 
 
@@ -733,27 +744,27 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   // K := 0;
   mov  eax, 0              // 清除 EAX 為 0 (MOV 指令不會變動 CPU 旗標)
   
-  je   @@if2               // 如果等於 2，這裡也就表示 Len = 2 (依據前面 CMP 的旗標)
-  jb   @@if1               // 如果小於 2，這裡也就表示 Len = 1 (依據前面 CMP 的旗標)
+  je   @@if2               // 如果等於 2，這裡也就表示 nLastBytes = 2 (依據前面 CMP 的旗標)
+  jb   @@if1               // 如果小於 2，這裡也就表示 nLastBytes = 1 (依據前面 CMP 的旗標)
   // << if nLastBytes = 2 then ...
 
   // 下面利用組合語言 32bit 處理時 使用 AL 會保留前面的 24bit 的特性，
   // mov al, [r9] 將達成 K := K or PByte(pBlock)^ 的效果。
   
   // K := K or PByte(pBlock)^; Dec(PByte(pBlock)); K := K shl 8;
-@@if3:                     // (Len mod 4) = 3
+@@if3:                     // nLastBytes = 3
   mov   al, [ebx]          // 取得尾端倒數第 3 個 Byte 值
   dec  ebx                 // 前往下一個位元組的指標
   shl  eax, 8              // 將位元向左移動 1Byte
 
   // K := K or PByte(pBlock)^; Dec(PByte(pBlock)); K := K shl 8;
-@@if2:                     // (Len mod 4) = 2
+@@if2:                     // nLastBytes = 2
   mov   al, [ebx]          // 取得尾端倒數第 2 個 Byte 值
   dec  ebx                 // 前往下一個位元組的指標
   shl  eax, 8              // 將位元向左移動 1Byte
 
   // K := K or PByte(pBlock)^;
-@@if1:                     // (Len mod 4) = 1
+@@if1:                     // nLastBytes = 1
   mov   al, [ebx]          // 取得尾端倒數第 1 個 Byte 值
 
 
@@ -781,7 +792,7 @@ asm // parameter: eax(Data), edx(Len), ecx(Seed)
   shr  ecx, $10            // 將 暫存器 ECX 右移 16 次
   xor  eax, ecx            // 將 暫存器 EAX XOR 暫存器 ECX
   // H := H * $85ebca6b;
-  imul eax, eax, $85ebca6b // 將 暫存器 EAX 值乘 $1b873593
+  imul eax, eax, $85ebca6b // 將 暫存器 EAX 值乘 $85ebca6b
   // H := H xor (H shr 13);
   mov  ecx, eax            // 將 暫存器 EAX 複製到 暫存器 ECX
   shr  eax, $0d            // 將 暫存器 EAX 右移 13 次
@@ -947,9 +958,9 @@ begin
     pLeftover := PByte(pBlock);
 	
     case nLastBytes of
-      3: K1 := Cardinal(PWord(pLeftover)^) or pLeftover[2];
-      2: K1 := Cardinal(PWord(pLeftover)^));
-      1: K1 := Cardinal(pLeftover[2]);
+      3: K := (Cardinal(pLeftover[2]) shl 16) or PWord(pLeftover)^;
+      2: K := Cardinal(PWord(pLeftover)^);
+      1: K := Cardinal(pLeftover^);
     end;
 
     K := K * $cc9e2d51;
@@ -1204,7 +1215,7 @@ function GetDataBlockFlowing32bit(var ABuffer: Cardinal; var ACount: Cardinal; c
 var
   Value, Available: Cardinal;
 begin
-  if (ACount = SizeOf(ABuffer)) or (ALength = 0) then
+  if (ACount >= SizeOf(ABuffer)) or (ALength = 0) then
     Exit(0);
 
   //
@@ -1216,19 +1227,17 @@ begin
   else
     Result := ALength;  // 要複製到緩衝區的資料長度
 
-  //
   // 將資料接續複製到緩衝區中
   //
-  {$IF ALIGN >= 4} // 當記憶體對齊大於等於 4 時可以直接使用 PCardinal 指標。
-    // 將取得的數值只留下有效的部分，其餘部分為 0。
-    Value := (PCardinal(AData)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - Result) * 8))) shl (ACount * 8);
-  {$ELSE}          // 當對齊小於 4 時僅在有效範圍內對記憶體存取
+  if ALength >= SizeOf(Cardinal) then // 若來源長度大於等於 4 則以 Cardinal 直接複製
+    Value := (PCardinal(AData)^ and (Cardinal.MaxValue shr ((SizeOf(Cardinal) - Result) * 8))) shl (ACount * 8)
+  else // 若來源長度不足 4 則在範圍內複製
     case Result of
-      3: Value := Cardinal(AData[2]) shl (ACount * 8);
+      3: Value := ((Cardinal(PByte(AData)[2]) shl 16) or PWord(AData)^) shl (ACount * 8);
       2: Value := Cardinal(PWord(AData)^) shl (ACount * 8);
-      1: Value := (Cardinal(PWord(AData)^) or AData[2]) shl (ACount * 8);
+      1: Value := Cardinal(PByte(AData)^) shl (ACount * 8);
+      else Exit;
     end;
-  {$IFEND}
   ABuffer := ABuffer or Value; // 與尚未處理的資料串接資料
   Inc(ACount, Result);         // 設定新的已使用緩衝長度
 end;
@@ -1237,7 +1246,7 @@ function GetDataBlockFlowing128bit(var ABuffer: UInt128; var ACount: Cardinal; c
 var
   Available: Cardinal;
 begin
-  if (ACount = SizeOf(ABuffer)) or (ALength = 0) then
+  if (ACount >= SizeOf(ABuffer)) or (ALength = 0) then
     Exit(0);
 
   //
@@ -1421,7 +1430,10 @@ end;
 
 procedure TMurmurHash3_32bit_x86.Update(const AData: TBytes; ALength: Cardinal);
 begin
-  Update(PByte(AData)^, ALength);
+  if ALength = 0 then
+    Update(PByte(AData)^, Length(AData))
+  else
+    Update(PByte(AData)^, ALength);
 end;
 
 procedure TMurmurHash3_32bit_x86.Update(const Input: string);
@@ -1695,7 +1707,6 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Initialize;
 begin
-  ClearRemainingBuffer;
   FLength := 0;
   FHashContext.u32[0] := FSeed;
   FHashContext.u32[1] := FSeed;
@@ -1826,7 +1837,10 @@ end;
 
 procedure TMurmurHash3_128bit_x86.Update(const AData: TBytes; ALength: Cardinal);
 begin
-  Update(PByte(AData)^, ALength);
+  if ALength = 0 then
+    Update(PByte(AData)^, Length(AData))
+  else
+    Update(PByte(AData)^, ALength);
 end;
 
 procedure TMurmurHash3_128bit_x86.Update(const Input: string);
@@ -2176,7 +2190,10 @@ end;
 
 procedure TMurmurHash3_128bit_x64.Update(const AData: TBytes; ALength: Cardinal);
 begin
-  Update(PByte(AData)^, ALength);
+  if ALength = 0 then
+    Update(PByte(AData)^, Length(AData))
+  else
+    Update(PByte(AData)^, ALength);
 end;
 
 procedure TMurmurHash3_128bit_x64.Update(const Input: string);
