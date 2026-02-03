@@ -2,6 +2,17 @@
 ***
 
 # MurmurHash3
+> [!CAUTION]
+> English:
+> The problem has been identified but not yet resolved.
+> * The next step is to correct the handling of non-continuous data and unaligned block length calculations in the following structure's Update function
+>   TMurmurHash3_32bit_x86、TMurmurHash3_128bit_x86、TMurmurHash3_128bit_x64
+> 
+> 中文：
+> 已知問題，待處理
+> * 下一步修正下列結構中 Update 對於非連續資料與非對齊區塊長度計算時的處理問題
+>   TMurmurHash3_32bit_x86、TMurmurHash3_128bit_x86、TMurmurHash3_128bit_x64
+  
 ## function
 MurmurHash3_32bit_x86、MurmurHash3_128bit_x86、MurmurHash3_128bit_x64
 ```delphi
